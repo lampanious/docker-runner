@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  dotnet-builder:
+    image: mcr.microsoft.com/dotnet/sdk:7.0
+    container_name: dotnet-builder
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - nuget-cache:/root/.nuget/packages
+    environment:
+      - DOTNET_CLI_TELEMETRY_OPTOUT=1
+      - DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+      - DOTNET_NOLOGO=true
+      - NUGET_XMLDOC_MODE=skip
+      - MSBuildEnableWorkloadResolver=false
+      - DOTNET_USE_POLLING_FILE_WATCHER=true
+      # Limit MSBuild to use a sensible amount of the available CPU cores
+      - MSBuildNodeCount=2
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    # Health check to detect hung builds
+    healthcheck:
+      test: ["CMD", "bash", "-c", "ps aux | grep -v grep | grep -q 'dotnet build' || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: >
+      bash -c "dotnet restore && dotnet build --no-restore"
+
+  # Optional CI/CD build service
+  dotnet-ci-builder:
+    image: mcr.microsoft.com/dotnet/sdk:7.0
+    container_name: dotnet-ci-builder
+    profiles: ["ci"]
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - nuget-cache:/root/.nuget/packages
+    environment:
+      - DOTNET_CLI_TELEMETRY_OPTOUT=1
+      - DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+      - DOTNET_NOLOGO=true
+      - NUGET_XMLDOC_MODE=skip
+      - MSBuildEnableWorkloadResolver=false
+      - MSBuildNodeCount=4
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    command: >
+      bash -c "dotnet restore && dotnet build --no-restore && dotnet test --no-build"
+
+volumes:
+  nuget-cache:
+    name: nuget-cache
+    external: true
