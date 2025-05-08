@@ -1,0 +1,112 @@
+groups:
+  - name: dotnet_docker_build_alerts
+    rules:
+      # Container CPU Saturation - Critical for .NET builds
+      - alert: DotNetBuildHighCpuUsage
+        expr: (sum(rate(container_cpu_usage_seconds_total{container=~".*dotnet.*|.*build.*"}[5m])) by (instance, container, name) / sum(container_spec_cpu_quota{container=~".*dotnet.*|.*build.*"}/container_spec_cpu_period{container=~".*dotnet.*|.*build.*"}) by (instance, container, name) * 100) > 90
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU Usage in .NET Build Container"
+          description: ".NET build container {{ $labels.container }} has high CPU usage ({{ printf \"%.2f\" $value }}%). This may impact build performance."
+          runbook_url: "https://your-org/runbooks/dotnet-build-cpu-issues"
+
+      # Container Memory Saturation - Affects MSBuild performance
+      - alert: DotNetBuildHighMemoryUsage
+        expr: (container_memory_usage_bytes{container=~".*dotnet.*|.*build.*"} / container_spec_memory_limit_bytes{container=~".*dotnet.*|.*build.*"} * 100) > 85
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Memory Usage in .NET Build Container"
+          description: ".NET build container {{ $labels.container }} is using {{ printf \"%.2f\" $value }}% of memory limit. This may cause build failures or slowdowns."
+          runbook_url: "https://your-org/runbooks/dotnet-build-memory-issues"
+
+      # Disk Space - Critical for Docker layer caching
+      - alert: DotNetBuildHighDiskUsage
+        expr: (container_fs_usage_bytes{container=~".*dotnet.*|.*build.*"} / container_fs_limit_bytes{container=~".*dotnet.*|.*build.*"} * 100) > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Disk Usage in .NET Build Container"
+          description: ".NET build container {{ $labels.container }} is using {{ printf \"%.2f\" $value }}% of disk space. This may impact Docker caching."
+          runbook_url: "https://your-org/runbooks/dotnet-build-disk-issues"
+
+      # Container restarts - Indicates unstable build environment
+      - alert: DotNetBuildContainerRestarts
+        expr: changes(container_start_time_seconds{container=~".*dotnet.*|.*build.*"}[1h]) > 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: ".NET Build Container Restarting"
+          description: ".NET build container {{ $labels.container }} has restarted {{ printf \"%.0f\" $value }} times in the last hour."
+          runbook_url: "https://your-org/runbooks/dotnet-build-stability-issues"
+
+      # Build time monitoring - Detect slow builds compared to baseline
+      - alert: DotNetBuildSlowPerformance
+        expr: rate(process_cpu_seconds_total{process=~".*dotnet|.*msbuild.*"}[10m]) < 0.3 and on (instance) (rate(node_cpu_seconds_total{mode="idle"}[10m]) < 0.2)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow .NET Build Performance"
+          description: "Low CPU utilization for .NET build processes while system CPU is busy on {{ $labels.instance }}. Possible resource contention or build process hanging."
+          runbook_url: "https://your-org/runbooks/dotnet-build-performance-issues"
+
+      # .NET Build Process Count - Detect too many concurrent processes
+      - alert: DotNetBuildTooManyProcesses
+        expr: count(process_start_time_seconds{process=~".*dotnet|.*msbuild.*"}) by (instance) > 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Too Many .NET Build Processes"
+          description: "Detected {{ printf \"%.0f\" $value }} concurrent .NET build processes on {{ $labels.instance }}. This may cause resource contention."
+          runbook_url: "https://your-org/runbooks/dotnet-concurrent-builds"
+
+      # Host-level metrics that affect builds
+      - alert: DockerHostSwapUsageHigh
+        expr: ((node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Swap Usage on Docker Host"
+          description: "Docker host {{ $labels.instance }} is using {{ printf \"%.2f\" $value }}% of swap space. This will significantly degrade .NET build performance."
+          runbook_url: "https://your-org/runbooks/host-memory-issues"
+
+      # I/O Saturation - Critical for MSBuild and NuGet operations
+      - alert: DockerHostHighDiskIO
+        expr: rate(node_disk_io_time_seconds_total[1m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Disk I/O on Docker Host"
+          description: "Docker host {{ $labels.instance }} is experiencing high disk I/O utilization ({{ printf \"%.2f\" $value }}). This may slow down .NET builds and NuGet package operations."
+          runbook_url: "https://your-org/runbooks/host-disk-io-issues"
+          
+      # NuGet Package Cache Issues
+      - alert: NuGetPackageCacheHeavyUsage
+        expr: rate(container_fs_reads_total{container=~".*dotnet.*|.*build.*",device=~".*"}[5m]) > 1000 and rate(container_fs_writes_total{container=~".*dotnet.*|.*build.*",device=~".*"}[5m]) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Heavy NuGet Package Cache I/O"
+          description: "Container {{ $labels.container }} is performing heavy disk I/O operations, which may indicate inefficient NuGet package caching."
+          runbook_url: "https://your-org/runbooks/nuget-cache-issues"
+
+      # MSBuild Cache Issues
+      - alert: DotNetBuildCacheInefficient
+        expr: rate(container_fs_reads_bytes_total{container=~".*dotnet.*|.*build.*"}[10m]) > 100 * 1024 * 1024 and on (instance) (rate(container_cpu_usage_seconds_total{container=~".*dotnet.*|.*build.*"}[10m]) > 0.8)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Inefficient .NET Build Caching"
+          description: "Container {{ $labels.container }} is reading large amounts of data while CPU is high, indicating possible inefficient caching in .NET build process."
+          runbook_url: "https://your-org/runbooks/dotnet-build-cache-issues"
